@@ -32,15 +32,17 @@
 <script>
 // =====================================================================
 //  MOTOR ISOMÉTRICO EM PIXEL ART
-//  O andar inteiro é desenhado numa imagem interna (buf) com PX pixels por
-//  unidade do mundo, e essa imagem é ampliada sem suavização: é isso que
-//  dá o visual "pixelado". Aumentar PX = mais pixels = mais detalhe.
+//  A parte do andar que está na tela é desenhada numa imagem interna (buf)
+//  com até PX pixels por unidade do mundo, e essa imagem é ampliada sem
+//  suavização: é isso que dá o visual "pixelado". Aumentar PX = mais
+//  pixels = mais detalhe. Como só o que aparece na tela é desenhado, o
+//  custo não cresce com o tamanho do andar.
 //
 //  Mundo 3D: x vai para a direita-baixo, y para a esquerda-baixo, z para
 //  cima. Cada quarto é um cubo SxS com as paredes do fundo (x=0 e y=0).
 // =====================================================================
 const C = window.CREATORS || [];
-const PX = 4;                                           // pixels por unidade
+const PX = 8;                                           // pixels por unidade (resolução máxima)
 const S = 80, H = 46, G = 46, COLS = 3;                 // lado do quarto, altura da parede, corredor
 const ROWS = Math.max(2, Math.ceil((C.length + 1) / COLS));
 const N = ROWS * COLS;
@@ -54,6 +56,7 @@ let ctx = bctx;                                         // contexto onde as prim
 let cam = { x: 0, y: 0, z: 1 }, alvo = null, hover = -1, mexeu = false;
 let OX = 0, OY = 0;                                     // origem do quarto sendo desenhado
 let baloes = [];
+let K = PX;                                             // pixels por unidade na renderização atual
 
 // ---------- projeção e primitivas ----------
 function isoAbs(X, Y, z) { return [X - Y, (X + Y) / 2 - z]; }
@@ -65,7 +68,7 @@ function caminho(pts) {
 }
 function poly(pts, cor, contorno) {
   caminho(pts); ctx.fillStyle = cor; ctx.fill();
-  ctx.lineWidth = contorno ? 1 / PX : 0.15; ctx.strokeStyle = contorno ? CONTORNO : cor; ctx.stroke();
+  ctx.lineWidth = contorno ? 1 / Math.max(K, 3) : 0.15; ctx.strokeStyle = contorno ? CONTORNO : cor; ctx.stroke();
 }
 // caixa 3D: topo + as duas faces viradas para quem olha (+x e +y), com contorno escuro
 function box(x, y, z, w, d, h, cor, contorno = true) {
@@ -140,7 +143,7 @@ const PAREDE = {
   neon(t, c, T) {
     const m = t % 7000, aceso = !(m < 120 || (m > 260 && m < 340));
     naParedeY(22, 0.3, 44, () => {
-      ctx.shadowColor = '#3d63ff'; ctx.shadowBlur = aceso ? 10 : 0;
+      ctx.shadowColor = '#3d63ff'; ctx.shadowBlur = aceso ? 2.5 * K : 0;
       txt(c.neon || '', 16.5, 0, 3.1, aceso ? '#d4ddff' : '#7180b8', 'center', 800);
       ctx.shadowBlur = 0;
     });
@@ -161,6 +164,27 @@ const PAREDE = {
         r(4, 7.7, 6, 1.5, d.escuro ? T.destaque : T.escuro);
         txt(d.botao || '', 7, 8.05, 0.8, '#fff', 'center', 800);
       });
+    });
+  },
+  relogio(t, c, T) {                              // relógio de parede com a hora real
+    naParedeY(64, 0.15, 45, () => {
+      const cx = 3, cy = 3, d = new Date(), m = d.getMinutes() + d.getSeconds() / 60, h = (d.getHours() % 12) + m / 60;
+      ctx.beginPath(); ctx.arc(cx, cy, 2.7, 0, Math.PI * 2); ctx.fillStyle = T.escuro; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, 2.2, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+      for (let k = 0; k < 12; k++) { const a = k * Math.PI / 6; r(cx + Math.sin(a) * 1.8 - 0.1, cy - Math.cos(a) * 1.8 - 0.1, 0.2, 0.2, T.escuro); }
+      ctx.lineCap = 'round'; ctx.strokeStyle = T.escuro;
+      for (const [ang, len, lw] of [[h / 12, 1.1, 0.3], [m / 60, 1.7, 0.2]]) {
+        const a = ang * Math.PI * 2; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.sin(a) * len, cy - Math.cos(a) * len); ctx.stroke();
+      }
+      const a = d.getSeconds() / 60 * Math.PI * 2; ctx.strokeStyle = '#e0443a'; ctx.lineWidth = 0.1;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.sin(a) * 1.9, cy - Math.cos(a) * 1.9); ctx.stroke();
+    });
+  },
+  postits(t, c, T) {
+    const P = [[52, 12.5, '#ffe066'], [54.6, 13.2, T.claro], [52.8, 9.6, '#ffb3c7'], [55.2, 10.2, '#ffe066']];
+    P.forEach(([x, z, cor], k) => {
+      faceY(x + 0.15, 0.1, z - 0.15, 2.2, 2.2, 'rgba(0,0,0,.12)'); faceY(x, 0.15, z, 2.2, 2.2, cor);
+      for (let l = 0; l < 2; l++) faceY(x + 0.4, 0.2, z + 1.4 - l * 0.6, 1.2 - l * 0.3, 0.15, 'rgba(20,30,80,.45)');
     });
   }
 };
@@ -230,10 +254,28 @@ const MOVEIS = {
     sombra(35, 22, 8, 7);
     box(35.5, 22.5, 0, 7, 6, 0.8, '#333'); box(38.5, 25, 0.8, 1, 1, 6, '#222');
     box(35, 22, 6.8, 8, 7, 1.8, '#1b1f2e'); box(35, 20.8, 8.6, 8, 1.4, 11, '#1b1f2e');
+  }},
+  aparador: { k: 15, f(t, c, T) {                 // móvel baixo embaixo da janela, com caixa de som, porta-retrato e suculenta
+    sombra(2, 0, 20, 6);
+    box(2, 0, 0, 20, 6, 9, '#f4f6fb');
+    faceY(11.9, 6.05, 0.8, 0.2, 7.4, '#c9ced9'); faceY(9.6, 6.1, 4.2, 1.4, 0.5, '#9aa0ad'); faceY(13, 6.1, 4.2, 1.4, 0.5, '#9aa0ad');
+    for (const lx of [2.6, 20.4]) box(lx, 5, -0.01, 1, 1, 0.8, '#2a2f40', false);
+    box(3.5, 1.2, 9, 3.4, 3.2, 5.2, '#1b1f2e');
+    faceY(4, 4.45, 9.6, 2.4, 2.4, '#2c3245'); faceY(4.6, 4.5, 10.2, 1.2, 1.2, '#444b62'); faceY(4.8, 4.5, 12.6, 0.8, 0.8, '#444b62');
+    box(9.5, 2.2, 9, 5, 0.8, 4.2, T.escuro); faceY(10, 3.05, 9.5, 4, 3.2, T.claro);
+    faceY(11.2, 3.1, 10.6, 1.6, 1.6, shade(T.escuro, 0.2)); faceY(11.6, 3.1, 12, 0.8, 0.7, '#eec4a0');
+    box(16.5, 1.8, 9, 3, 3, 2.2, '#c0643b');
+    for (const [x, y, z] of [[17, 2.3, 11.2], [18, 2.2, 11.6], [17.4, 3, 11.9], [18.2, 3.1, 11.2]]) box(x, y, z, 1, 1, 1.2, '#5aa86a', false);
+  }},
+  abajur: { k: 62, f(t, c, T) {                   // luminária de chão, com luz quente no piso
+    chao(7, 37, 18, 18, 0.08, 'rgba(255,220,140,.10)');
+    sombra(13.5, 43.5, 4, 4);
+    box(13.5, 43.5, 0, 4, 4, 0.8, '#2a2f40'); box(15.2, 45.2, 0.8, 0.6, 0.6, 29, '#2a2f40', false);
+    box(12.5, 42.5, 29, 5.5, 5.5, 5, '#f7f1e3'); chao(13, 43, 4.5, 4.5, 29.05, '#ffe9a8');
   }}
 };
 
-const NA_MESA = ['mesa', 'computador', 'notebook', 'cafe', 'microfone', 'contador'];
+const NA_MESA = ['mesa', 'computador', 'notebook', 'cafe', 'microfone', 'contador', 'luminaria', 'fones', 'celular'];
 function mesa(t, c, T, objs) {
   const tampo = T.mesa, z = 16.6;
   sombra(24, 30, 34, 12);
@@ -248,7 +290,8 @@ function mesa(t, c, T, objs) {
       if (c.tela === 'perfil') {
         r(0, 0, 14.6, 9.1, '#ffffff'); r(0, 0, 14.6, 3, T.destaque);
         ctx.beginPath(); ctx.arc(3, 3.2, 1.7, 0, Math.PI * 2); ctx.fillStyle = T.escuro; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.3; ctx.stroke();
-        r(1.4, 5.4, 6, 0.7, '#000729'); r(1.4, 6.6, 9, 0.45, '#8892b0'); r(1.4, 7.5, 7, 0.45, '#8892b0');
+        txt(cut(c.nome, 20), 1.4, 5.1, 0.95, '#000729', 'left', 800); r(1.4, 6.6, 9, 0.45, '#8892b0'); r(1.4, 7.5, 7, 0.45, '#8892b0');
+        for (let k = 0; k < 4; k++) r(5.5 + k * 2.2, 1, 1.6, 0.9, 'rgba(255,255,255,.35)');
         r(10.5, 6.6, 3.2, 1.2, T.destaque);
         if (t % 1000 < 500) r(7.6 + (t / 1000 % 3), 5.4, 0.3, 0.7, '#000729');
       } else {
@@ -256,6 +299,20 @@ function mesa(t, c, T, objs) {
       }
     });
     box(34, 36.5, z, 11, 3, 0.6, '#dfe3ee'); box(46.5, 37, z, 1.4, 2, 0.6, '#dfe3ee');
+    for (let row = 0; row < 3; row++) for (let col = 0; col < 10; col++)            // teclas
+      chao(34.5 + col * 1.02, 36.85 + row * 0.85, 0.75, 0.6, z + 0.62, row === 2 && col > 2 && col < 7 ? '#c3c9d6' : '#b6bccb');
+  }
+  if (objs.has('luminaria')) {
+    poly([[26.5, 32.5, z + 6.8], [29.5, 34.5, z + 6.8], [33, 39, z + 0.01], [24.5, 39, z + 0.01]], 'rgba(255,225,140,.13)');
+    box(25, 31, z, 3, 3, 0.6, '#1b1f2e'); box(26.2, 32.2, z + 0.6, 0.6, 0.6, 6, '#1b1f2e', false);
+    box(25.6, 31.8, z + 6.6, 4.2, 3, 1.6, T.destaque); chao(26, 32.2, 3.4, 2.2, z + 6.55, '#ffe9a8');
+  }
+  if (objs.has('fones')) {
+    box(29, 33.2, z, 1.4, 2, 1.4, '#1b1f2e'); box(32.4, 33.2, z, 1.4, 2, 1.4, '#1b1f2e');
+    box(29.6, 33.9, z + 1.4, 3.6, 0.6, 0.6, '#2a2f40', false); chao(29.2, 33.5, 1, 1.4, z + 1.42, T.destaque); chao(32.6, 33.5, 1, 1.4, z + 1.42, T.destaque);
+  }
+  if (objs.has('celular')) {
+    box(44.6, 39.9, z, 3, 1.6, 0.35, '#111'); chao(44.8, 40.05, 2.6, 1.3, z + 0.37, t % 6000 < 1500 ? '#3f5ce0' : '#1d2a6b');
   }
   if (objs.has('notebook')) {
     box(50, 33, z, 7, 4.5, 0.5, '#a9afbd'); box(50, 32.6, z + 0.5, 7, 0.5, 5, '#a9afbd');
@@ -264,6 +321,7 @@ function mesa(t, c, T, objs) {
   }
   if (objs.has('cafe')) {
     box(26, 37, z, 2.4, 2.4, 3, '#ffffff'); chao(26.3, 37.3, 1.8, 1.8, z + 3.05, '#5a3a1a'); box(28.4, 37.8, z + 0.8, 0.6, 0.8, 1.4, '#ffffff', false);
+    faceY(26.6, 39.45, z + 0.9, 1.2, 1.2, T.destaque);
     for (let k = 0; k < 3; k++) faceY(26.7 + (k + Math.floor(t / 400)) % 2 * 0.6, 38.4, z + 3.5 + (t / 160 + k * 2.2) % 6, 0.5, 0.5, 'rgba(255,255,255,.75)');
   }
   if (objs.has('microfone')) {
@@ -282,19 +340,30 @@ function personagem(c, t) {
   const tipo = p.cabeloTipo || (p.cabeloLongo ? 'longo' : 'curto');
   sombra(px, py + 1, 9, 5);
   box(px + 1, py + 1, 0, 3, 3.6, 1.5, sapato); box(px + 5, py + 1, 0, 3, 3.6, 1.5, sapato);
+  faceY(px + 1, py + 4.62, 0, 3, 0.45, shade(sapato, -0.3)); faceY(px + 5, py + 4.62, 0, 3, 0.45, shade(sapato, -0.3));
   box(px + 1.2, py + 1.3, 1.5, 2.6, 2.6, 11.5, calca); box(px + 5.2, py + 1.3, 1.5, 2.6, 2.6, 11.5, calca);
   if (tipo === 'longo') box(px + 1.1, py + 0.2, 20 + b, 6.8, 1.2, 12, cabelo);
   box(px - 1.4, py + 1.2, 14 + b, 2, 2.4, 6.5, pele); box(px - 1.5, py + 1.1, 20.3 + b, 2.2, 2.6, 4, roupa);
+  box(px - 1.3, py + 1.3, 13 + b, 1.8, 2.2, 1.2, shade(pele, -0.06));
   box(px + 0.5, py + 0.5, 13 + b, 8, 4, 11.5, roupa);
+  faceY(px + 0.5, py + 4.52, 13 + b, 8, 0.6, shade(roupa, -0.12));               // barra da camiseta
+  faceY(px + 2.2, py + 4.52, 16 + b, 0.25, 5, shade(roupa, -0.06));              // dobras do tecido
+  faceY(px + 6.1, py + 4.52, 15 + b, 0.25, 4, shade(roupa, -0.06));
   faceY(px + 3.2, py + 4.55, 23.4 + b, 2.6, 1.1, pele);
   box(px + 8.4, py + 1.2, 14 + b, 2, 2.4, 6.5, pele); box(px + 8.3, py + 1.1, 20.3 + b, 2.2, 2.6, 4, roupa);
+  box(px + 8.5, py + 1.3, 13 + b, 1.8, 2.2, 1.2, shade(pele, -0.06));           // mão
   box(px + 3.3, py + 2, 24.5 + b, 2.4, 2, 1.6, pele);
   box(px + 1.2, py + 0.3, 27 + b, 6.6, 1, 5.5, cabelo);
   if (tipo === 'longo') box(px + 1, py + 0.6, 22 + b, 0.7, 4, 10, cabelo);
   box(px + 1.5, py + 0.6, 26 + b, 6, 4.4, 6.5, pele);
   box(px + 7.5, py + 2.2, 28 + b, 0.5, 1.2, 1.8, shade(pele, -0.08), false);
-  const F = py + 5.05, olho = t % 3400 < 140 ? shade(pele, -0.3) : '#2a1a10';
-  faceY(px + 2.7, F, 29 + b, 1, 1.2, olho); faceY(px + 5.3, F, 29 + b, 1, 1.2, olho);
+  const F = py + 5.05;
+  if (t % 3400 < 140) { faceY(px + 2.5, F, 29.4 + b, 1.4, 0.35, shade(pele, -0.35)); faceY(px + 5.1, F, 29.4 + b, 1.4, 0.35, shade(pele, -0.35)); }
+  else for (const ex of [2.5, 5.1]) {             // olho: parte branca, íris e brilho
+    faceY(px + ex, F, 28.9 + b, 1.4, 1.3, '#ffffff');
+    faceY(px + ex + 0.45, F + 0.01, 28.9 + b, 0.85, 1.2, '#3b2414');
+    faceY(px + ex + 0.55, F + 0.02, 29.6 + b, 0.3, 0.3, '#ffffff');
+  }
   faceY(px + 2.5, F, 30.7 + b, 1.4, 0.45, cabelo); faceY(px + 5.1, F, 30.7 + b, 1.4, 0.45, cabelo);
   faceY(px + 4.2, F, 27.9 + b, 0.6, 1, shade(pele, -0.15));
   faceY(px + 3.6, F, 26.9 + b, 1.8, 0.45, shade(pele, -0.4));
@@ -402,14 +471,28 @@ function limites() {
   return { x0, y0, w: x1 - x0, h: y1 - y0 };
 }
 const B = limites();
-buf.width = Math.ceil(B.w * PX); buf.height = Math.ceil(B.h * PX);
 const ORDEM = [...Array(N).keys()].sort((a, b) => (a % COLS + Math.floor(a / COLS)) - (b % COLS + Math.floor(b / COLS)));
+let VISTA = { x0: 0, y0: 0, k: 1 };
+function visivel(i, v) {                          // o quarto aparece na tela?
+  const [ox, oy] = origem(i);
+  const xa = isoAbs(ox, oy + S, 0)[0], xb = isoAbs(ox + S, oy, 0)[0];
+  const ya = isoAbs(ox, oy, H + 12)[1], yb = isoAbs(ox + S, oy + S, 0)[1];
+  return xb > v.x0 && xa < v.x1 && yb > v.y0 && ya < v.y1;
+}
+// Desenha só a área visível. Resolução = zoom atual, limitada a PX pixels por unidade.
 function renderBuf(t) {
-  ctx = bctx; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, buf.width, buf.height);
-  ctx.setTransform(PX, 0, 0, PX, -B.x0 * PX, -B.y0 * PX);
+  const k = Math.min(PX, cam.z), vw = cv.width / cam.z, vh = cv.height / cam.z;
+  const x0 = Math.floor((cam.x - vw / 2) * k) / k, y0 = Math.floor((cam.y - vh / 2) * k) / k;   // alinha à grade de pixels
+  const bw = Math.ceil(vw * k) + 2, bh = Math.ceil(vh * k) + 2;
+  if (buf.width !== bw || buf.height !== bh) { buf.width = bw; buf.height = bh; }
+  K = k; ctx = bctx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, bw, bh);
+  ctx.setTransform(k, 0, 0, k, -x0 * k, -y0 * k);
   baloes = [];
   drawAndar(t);
-  for (const i of ORDEM) drawRoom(i, t);
+  const v = { x0, y0, x1: x0 + vw + 2 / k, y1: y0 + vh + 2 / k };
+  for (const i of ORDEM) if (visivel(i, v)) drawRoom(i, t);
+  VISTA = { x0, y0, k };
 }
 
 // ---------- câmera ----------
@@ -451,8 +534,8 @@ function frame(t) {
   tela.setTransform(cam.z, 0, 0, cam.z, cv.width / 2 - cam.x * cam.z, cv.height / 2 - cam.y * cam.z);
   tela.fillStyle = '#7d86b8';
   for (const [sx, sy, ph] of STARS) if ((t + ph) % 5000 > 400) tela.fillRect(sx, sy, 1, 1);
-  tela.imageSmoothingEnabled = cam.z < PX;              // ampliado = pixels nítidos; reduzido = suave
-  tela.drawImage(buf, B.x0, B.y0, buf.width / PX, buf.height / PX);
+  tela.imageSmoothingEnabled = false;                   // pixels nítidos
+  tela.drawImage(buf, VISTA.x0, VISTA.y0, buf.width / VISTA.k, buf.height / VISTA.k);
   drawBaloes();
   requestAnimationFrame(frame);
 }
